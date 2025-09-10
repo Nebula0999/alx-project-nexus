@@ -1,6 +1,6 @@
 ## alx-project-nexus
 
-# The goal of this project is to showcase the skills gained during the prodev backend program and applying it in solvingreal world probems.
+# The goal of this project is to showcase the skills gained during the prodev backend program and applying it in solving real world probems.
 
 ## KeY Technologies covered
 - Python
