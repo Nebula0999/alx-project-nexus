@@ -2,7 +2,7 @@ from celery import shared_task
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.contrib.auth import get_user_model
-from products.models import Order, Cart, CartItem, OrderItem
+from products.models import Order, OrderItem
 
 User = get_user_model()
 @shared_task(bind=True, max_retries=3)
@@ -47,15 +47,19 @@ def send_order_confirmation(order_id):
 def process_abandoned_carts():
     """Process abandoned shopping carts."""
     from datetime import datetime, timedelta
-    from products.models import Cart
-    
+    try:
+        from products.models import Cart
+    except ImportError:
+        # Cart model not implemented — nothing to do
+        return
+
     # Find carts abandoned for more than 1 hour
     abandoned_time = datetime.now() - timedelta(hours=1)
     abandoned_carts = Cart.objects.filter(
         updated_at__lt=abandoned_time,
         is_abandoned_email_sent=False
     )
-    
+
     for cart in abandoned_carts:
         send_abandoned_cart_email.delay(cart.id)
         cart.is_abandoned_email_sent = True
@@ -64,8 +68,11 @@ def process_abandoned_carts():
 @shared_task
 def send_abandoned_cart_email(cart_id):
     """Send abandoned cart reminder email."""
-    from products.models import Cart
-    
+    try:
+        from products.models import Cart
+    except ImportError:
+        return
+
     try:
         cart = Cart.objects.get(id=cart_id)
         subject = 'You have items waiting in your cart!'

@@ -11,16 +11,26 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
+from celery.schedules import crontab
+import environ
+env = environ.Env()
+environ.Env.read_env()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-s(q&@#(x&y^v4ko%#)&=t#4vrc0t*74suq#_bz&an-k7l_ma+%'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -39,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'users',
     'products',
+    'payments',
     'rest_framework',
     'celery',
     'django_celery_beat',
@@ -83,12 +94,23 @@ WSGI_APPLICATION = 'ecommerce.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
+'''DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
-}
+}'''
+
+DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'NAME': 'ecommerce',  
+            'USER': 'postgres',     
+            'PASSWORD': '15190', 
+            'HOST': 'localhost',        
+            'PORT': '5432',              
+        }
+    }
 
 
 # Password validation
@@ -169,4 +191,22 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.inventory.tasks.update_low_stock_alerts',
         'schedule': 1800.0,  # Every 30 minutes
     },
+}
+
+# Django REST Framework defaults
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly'
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# drf-spectacular (OpenAPI) settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'ALX Project Nexus API',
+    'DESCRIPTION': 'OpenAPI schema for the alx-project-nexus e-commerce backend',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
