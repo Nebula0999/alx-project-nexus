@@ -2,7 +2,12 @@ from celery import shared_task
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.core import signing
 from products.models import Order, OrderItem
+import logging
+
+logger = logging.getLogger('notifications.tasks')
 
 User = get_user_model()
 @shared_task(bind=True, max_retries=3)
@@ -11,17 +16,24 @@ def send_verification_email(self, user_id):
     try:
         user = User.objects.get(id=user_id)
         subject = 'Verify your email address'
-        html_message = render_to_string('emails/verification.html', {'user': user})
+        token = signing.dumps({"uid": user.id})
+        verify_url = f"{getattr(settings, 'SITE_URL', 'http://127.0.0.1:8000')}/api/verify-email/{token}/"
+        html_message = render_to_string('emails/verification.html', {
+            'user': user,
+            'verify_url': verify_url,
+        })
         
-        send_mail(
+        sent = send_mail(
             subject=subject,
             message='',
-            from_email='noreply@example.com',
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
             recipient_list=[user.email],
             html_message=html_message,
         )
+        logger.debug(f"Verification email attempted send= {sent} to={user.email} url={verify_url}")
         
     except Exception as exc:
+        logger.exception("Error sending verification email - will retry")
         self.retry(exc=exc, countdown=60)
 @shared_task
 def send_order_confirmation(order_id):
@@ -36,7 +48,7 @@ def send_order_confirmation(order_id):
         send_mail(
             subject=subject,
             message='',
-            from_email='noreply@example.com',
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
             recipient_list=[order.billing_email],
             html_message=html_message,
         )
@@ -81,7 +93,7 @@ def send_abandoned_cart_email(cart_id):
         send_mail(
             subject=subject,
             message='',
-            from_email='noreply@example.com',
+            from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com'),
             recipient_list=[cart.billing_email],
             html_message=html_message,
         )

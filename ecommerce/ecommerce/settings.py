@@ -75,7 +75,7 @@ ROOT_URLCONF = 'ecommerce.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -139,7 +139,7 @@ AUTH_USER_MODEL = 'users.User'
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Africa/Nairobi'
 
 USE_I18N = True
 
@@ -156,15 +156,21 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Redis (local by default). Override via REDIS_URL_BASE or CELERY_* env vars.
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+REDIS_DB_CACHE = os.getenv('REDIS_DB_CACHE', '0')
+REDIS_DB_BROKER = os.getenv('REDIS_DB_BROKER', '1')
+REDIS_DB_RESULT = os.getenv('REDIS_DB_RESULT', '2')
+REDIS_URL_BASE = os.getenv('REDIS_URL_BASE', f'redis://{REDIS_HOST}:{REDIS_PORT}')
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://default:*******@redis-10976.c326.us-east-1-3.ec2.redns.redis-cloud.com:10976/0",
+        "LOCATION": f"{REDIS_URL_BASE}/{REDIS_DB_CACHE}",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "PASSWORD": "*******",  # required by some Redis setups
-            "USERNAME": "default",        # Redis Cloud requires username
-            "DECODE_RESPONSES": True,     # so you don’t get b'' for strings
+            "DECODE_RESPONSES": True,
         }
     }
 }
@@ -173,8 +179,8 @@ SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_AGE = 86400  # 24 hours
 
-CELERY_BROKER_URL = "redis://default:*******@redis-10976.c326.us-east-1-3.ec2.redns.redis-cloud.com:10976/1"
-CELERY_RESULT_BACKEND = "redis://default:*******@redis-10976.c326.us-east-1-3.ec2.redns.redis-cloud.com:10976/2"
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', f"{REDIS_URL_BASE}/{REDIS_DB_BROKER}")
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', f"{REDIS_URL_BASE}/{REDIS_DB_RESULT}")
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -193,14 +199,34 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# In development, you can execute Celery tasks locally without a broker
+if DEBUG and os.getenv('CELERY_EAGER', 'true').lower() == 'true':
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+
 # Django REST Framework defaults
 REST_FRAMEWORK = {
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'DEFAULT_PAGINATION_CLASS': 'ecommerce.pagination.StandardResultsSetPagination',
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly'
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/hour',
+        'user': '1000/hour',
+        'users': '500/hour',
+        'payments': '300/hour',
+        'products': '800/hour',
+    },
 }
 
 # drf-spectacular (OpenAPI) settings
@@ -210,3 +236,42 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
 }
+
+# Email configuration (prefer env; fallback to Gmail dev example). For local debug you can set EMAIL_BACKEND to console.
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+# Accept either EMAIL_HOST_USER or legacy EMAIL_ADDRESS
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') or os.getenv('EMAIL_ADDRESS', 'youremail@example.com')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
+EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() == 'true'
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '30'))
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@example.com')
+ACCOUNT_EMAIL_SUBJECT_PREFIX = os.getenv('ACCOUNT_EMAIL_SUBJECT_PREFIX', '')
+
+# Basic logging to surface email sending issues & Celery task logs
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django.core.mail': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'notifications.tasks': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+    }
+}
+
+# Base URL used to build absolute links in emails
+SITE_URL = os.getenv('SITE_URL', 'http://127.0.0.1:8000')

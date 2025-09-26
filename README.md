@@ -1,305 +1,315 @@
 # alx-project-nexus
 
-Comprehensive e-commerce reference project built on Django and Django REST Framework. The codebase demonstrates a modular architecture split into small apps: `users`, `products`, `notifications`, and `payments` (skeleton). It includes models for products, categories, product variants, orders and order items, and a custom lightweight `User` model.
-
-This README documents the project's architecture, app responsibilities, models and fields, tasks/processes (Celery), setup and development steps, testing guidance, and recommendations for production hardening.
+Modern educational e‑commerce backend built with **Django 5**, **Django REST Framework**, **Celery**, **Redis**, **PostgreSQL**, and **JWT auth**. It demonstrates a clean modular architecture across `users`, `products`, `notifications`, and `payments` plus production‑leaning concerns: email verification, filtering/search/ordering, throttling, caching, pagination, OpenAPI docs, and background task patterns.
 
 ---
+## Feature Highlights
 
+| Domain | Implemented Features |
+|--------|----------------------|
+| Auth & Users | Custom user model (AbstractBaseUser + PermissionsMixin), registration, JWT auth, email verification + resend, unverified login blocking |
+| Catalog | Categories, Products (JSON attributes + GIN index), Product Variants |
+| Orders | Orders & OrderItems with pricing breakdown + status workflow |
+| Email | Verification emails (signed token, 24h expiry), order confirmation (placeholder), test email management command |
+| Filtering/Search | django-filter advanced filters (price ranges, created ranges, category slug), DRF SearchFilter & OrderingFilter |
+| Pagination | PageNumber pagination with client `?page_size=` (capped at 100) |
+| Throttling | Global anon/user + scoped throttles (users, payments, products) |
+| Caching | Per-list view caching (Products: 60s, Payments: 30s) via Redis |
+| Background Tasks | Celery tasks for verification, orders, abandoned cart, low stock (with retries & logging) |
+| Config | Local Redis defaults + env overrides, Celery eager dev mode, SMTP configurable |
+| API Docs | drf-spectacular schema + Swagger & ReDoc endpoints |
+
+---
 ## Table of Contents
 
-- Project overview
-- Apps & responsibilities
-	- `users`
-	- `products`
-	- `notifications`
-	- `payments`
-- Data models (detailed)
-- Background tasks (Celery)
-- API & authentication
-- Development setup
-- Running tests and migrations
-- Recommendations & next steps
+1. Architecture & Apps
+2. Data Models Overview
+3. Authentication & Email Verification Flow
+4. Filtering, Searching, Ordering
+5. Pagination
+6. Throttling
+7. Caching Strategy
+8. Background Tasks (Celery)
+9. OpenAPI / Documentation
+10. Configuration & Environment (.env)
+11. Development & Operations
+12. Testing
+13. Management Commands
+14. Security & Hardening Notes
+15. Roadmap / Next Improvements
 
 ---
+## 1. Architecture & Apps
 
-## Project overview
+| App | Responsibility |
+|-----|----------------|
+| `users` | Custom user model, registration, JWT auth, verification, resend flow |
+| `products` | Catalog (Category/Product/Variant), Orders, OrderItems, API & filters |
+| `notifications` | Celery task definitions (email & operational tasks) |
+| `payments` | Starter payment record model (extend for gateways) |
 
-`alx-project-nexus` is an educational e-commerce backend demonstrating core e-commerce primitives: product catalog, product variants, categories, shopping cart / orders, and user registration with email verification. It uses Django for the web framework, Django REST Framework for building APIs, and Celery (with Redis in settings) for background jobs such as sending email and processing abandoned carts.
-
-The codebase follows a modular app layout. Each app aims to encapsulate a single domain:
-
-- `users` — user model, serializers, and authentication views (custom user model is present in `users/models.py`).
-- `products` — product catalog models, orders, variants, and related API views/serializers.
-- `notifications` — Celery tasks for sending verification emails, order confirmations, abandoned cart reminders, and low-stock alerts.
-- `payments` — placeholder app where payment integrations and models should live.
-
----
-
-## Apps & responsibilities
-
-### users
-
-Location: `ecommerce/users`.
-
-Responsibilities:
-
-- Define a custom `User` model used by the project (`AUTH_USER_MODEL = 'users.User'`). The model is a lightweight implementation that stores username, email, names, password and basic flags. It includes compatibility `is_anonymous` and `is_authenticated` properties so Django auth checks and third-party code that expects these attributes do not raise errors.
-- Provide registration and authentication endpoints using DRF and JWT.
-
-Key file(s):
-
-- `models.py` — custom `User` model.
-- `serializers.py` — user serializer and JWT serializer (used in views).
-- `views.py` — registration and token obtain views.
-
-Notes:
-
-- The existing `User` model is intentionally minimal; consider using `AbstractBaseUser` + `PermissionsMixin` for a production-ready implementation with proper password hashing, managers, and admin integration.
-
-### products
-
-Location: `ecommerce/products`.
-
-Responsibilities:
-
-- Product catalog modeling: categories, products, product variants.
-- Order modeling: `Order` and `OrderItem` models for capturing purchases and billing/shipping information.
-- Exposes API views and serializers to register users and manage tokens (some authentication helpers appear here).
-
-Key models (see Data models section for field-level detail):
-
-- `Category` — hierarchical categories with parent-child support.
-- `Product` — product entity with flexible attributes (JSON field), price, SKU, and M2M categories.
-- `ProductVariant` — variant of a product with unique SKU, price, and attributes (JSON).
-- `Order` — captures the order lifecycle, totals, billing/shipping info, and status choices.
-- `OrderItem` — line items attached to orders.
-
-### notifications
-
-Location: `ecommerce/notifications`.
-
-Responsibilities:
-
-- Celery task definitions for asynchronous processing and email sending.
-- Tasks in `tasks.py` include:
-	- `send_verification_email` — send a verification email to a user (Celery task, retries configured).
-	- `send_order_confirmation` — send order confirmation emails.
-	- `process_abandoned_carts` — find carts abandoned for >1 hour and queue reminder emails.
-	- `send_abandoned_cart_email` — send an email reminding customers of inactive carts.
-	- `update_low_stocks_alerts` — find product variants with low stock and mark alerts as sent.
-
-Notes:
-
-- The tasks import models lazily inside the task functions to avoid circular import issues at startup.
-- Celery configuration in `settings.py` uses Redis as the broker and result backend.
-
-### payments
-
-Location: `ecommerce/payments`.
-
-Responsibilities:
-
-- Design area for payment gateway integration (Stripe, PayPal, etc.). The current `models.py` is a placeholder — implement `Payment`, `Transaction`, or gateway-specific models as needed.
+Key supporting modules: `ecommerce.pagination`, DRF settings, Celery, Redis cache configuration.
 
 ---
-
-## Data models (detailed)
-
-This section documents the main models found in `products` and `users` apps.
+## 2. Data Models Overview
 
 ### users.User
+- Extends `AbstractBaseUser` + `PermissionsMixin` (manager provides `create_user` / `create_superuser`).
+- Fields: `username`, `email`, `first_name`, `last_name`, `phone`, `is_verified`, `is_active`, `is_staff`, timestamps.
+- Authentication: password hashing via Django auth; JWT tokens disallowed until `is_verified` true.
 
-- Fields:
-	- `username` (unique CharField) — the user identifier used as `USERNAME_FIELD`.
-	- `email` (EmailField, unique) — user's email.
-	- `first_name`, `last_name` — name parts.
-	- `password` — stored as text in the current model (note: replace with Django password hashing if converting to `AbstractBaseUser`).
-	- `phone` — optional phone number.
-	- `is_verified` (Boolean) — whether email has been verified.
-	- `is_active` (Boolean) — active flag.
-	- `created_at`, `updated_at` — timestamps.
+### products.Category / Product / ProductVariant
+- `Product.attributes` & `ProductVariant.attributes`: JSON (flexible metadata). Indexed with `GinIndex` for Postgres.
+- Category hierarchy supported via self-FK.
 
-- Compatibility properties:
-	- `is_anonymous` — property returning `False` (ensures code checking this attribute won't raise AttributeError).
-	- `is_authenticated` — property returning `True`.
+### orders.Order / OrderItem
+- Order pricing fields: total, tax, shipping, discount + status choices.
+- Address fields stored as JSON for flexible schema.
 
-Notes: For full auth integration, implement `set_password`, `check_password`, and use Django's password hashing.
-
-### products.Category
-
-- `id` — UUID primary key.
-- `name`, `slug`, `description`, `parent` — hierarchical category fields.
-- `is_active`, `created_at` — state and timestamp.
-
-### products.Product
-
-- `id` — UUID primary key.
-- `name`, `slug`, `description`, `short_description`.
-- `sku` (unique), `price`, `compare_price`.
-- `categories` — ManyToMany to `Category`.
-- `attributes` — JSON field for flexible attribute storage (GinIndex applied for queries on Postgres).
-- `is_active`, `is_digital`, `weight`, `dimensions` (JSON).
-
-Indexes: `slug`, `sku`, `is_active`, `price` and a `GinIndex` for `attributes`.
-
-### products.ProductVariant
-
-- `id` — UUID primary key.
-- `product` — ForeignKey to `Product`.
-- `name`, `sku` (unique), `price`, `attributes` (JSON), `is_active`, `created_at`.
-
-Useful for modeling SKUs that vary by color, size, or other attributes.
-
-### products.Order
-
-- `id` — UUID primary key.
-- `order_number` (unique) and `user` relation.
-- `status` choices: `pending`, `confirmed`, `processing`, `shipped`, `delivered`, `cancelled`, `refunded`.
-- Pricing breakdown: `total_amount`, `tax_amount`, `shipping_amount`, `discount_amount`.
-- Billing fields: `billing_first_name`, `billing_last_name`, `billing_email`, `billing_phone`, `billing_address` (JSON).
-- Shipping fields: `shipping_first_name`, `shipping_last_name`, `shipping_address` (JSON).
-- `notes`, `created_at`, `updated_at`.
-
-### products.OrderItem
-
-- Fields: `order` (ForeignKey), `product_variant` (ForeignKey), `quantity`, `unit_price`, `total_price`, `created_at`.
+### payments.Payment
+- Minimal placeholder: gateway, amount, currency, status, reference, created_at.
 
 ---
+## 3. Authentication & Email Verification Flow
 
-## Background tasks (Celery)
+Endpoints:
+- `POST /api/register/` — create user (async or eager Celery email send).
+- `GET /api/verify-email/<token>/` — mark user verified (signed token, 24h expiry).
+- `POST /api/resend-verification/ {"email": "user@example.com"}` — resend if not verified.
+- `POST /api/auth/token/` — obtains JWT **only if user is verified** (403 otherwise).
+- `POST /api/auth/token/refresh/` — refresh access token.
 
-Celery is used for asynchronous tasks. The project settings configure Redis for both broker and result backend.
+Verification Email:
+1. Registration schedules (or immediately executes in eager mode) `send_verification_email`.
+2. Task signs payload `{ uid: <user_id> }` using Django signing; constructs absolute URL via `SITE_URL`.
+3. Template: `templates/emails/verification.html` (HTML button + fallback link).
+4. Token expiry: 24 hours (`max_age=60*60*24`). Expired or tampered tokens return descriptive 400.
 
-Key tasks (in `notifications/tasks.py`):
-
-- `send_verification_email(user_id)` — constructs and sends an email using `render_to_string('emails/verification.html', {'user': user})`. Retries up to 3 times.
-- `send_order_confirmation(order_id)` — sends order confirmation using a template `emails/order_confirmation.html` and `order.billing_email`.
-- `process_abandoned_carts()` — finds `Cart` instances that have not been updated for more than an hour and queues `send_abandoned_cart_email` for each; marks `is_abandoned_email_sent`.
-- `send_abandoned_cart_email(cart_id)` — sends an abandoned cart reminder using `cart.billing_email`.
-- `update_low_stocks_alerts()` — finds `ProductVariant` instances with `stock <= 5` and marks `low_stock_alert_sent`.
-
-Notes:
-
-- Task functions import models inside the function to avoid import-time circular dependencies.
-- When running Celery in development, start a worker with the Django settings configured and ensure Redis is reachable.
+Resilience:
+- Celery `max_retries=3` with exponential-ish (60s) retry for transient failures.
+- Dev fallback: if broker unreachable & `DEBUG=True`, task executes synchronously.
 
 ---
+## 4. Filtering, Searching, Ordering
 
-## API & authentication
+Global DRF backends:
+```
+django_filters.rest_framework.DjangoFilterBackend
+rest_framework.filters.SearchFilter
+rest_framework.filters.OrderingFilter
+```
 
-- JWT authentication is integrated using `djangorestframework-simplejwt` (token obtain view override is present in `users.views` / `products.views` as `CustomTokenObtainPairView`).
-- Registration endpoint is provided by `RegisterView` in `users.views` and will enqueue a verification email via Celery when a user registers.
+### Products (`/api/products/`)
+Advanced filter class: `ProductFilter` supports:
+- `min_price`, `max_price` (numeric)
+- `created_after`, `created_before` (ISO8601 datetime)
+- `category` (Category slug)
+- `is_active`, `is_digital`
 
-Example usage (registering a user):
+Query Examples:
+```
+/api/products/?min_price=10&max_price=50&category=electronics&ordering=-price
+/api/products/?search=wireless&page=2&page_size=25
+/api/products/?created_after=2025-09-01T00:00:00Z&created_before=2025-09-30T23:59:59Z
+```
 
-POST /api/register/ with JSON payload:
+### Payments (`/api/payments/`)
+Filterable: `status`, `gateway`, `currency`, `amount` (lt/lte/gt/gte), created_at range.
+Search: `reference`, `gateway`, `currency`. Ordering: `amount`, `created_at`.
 
+### Users (`/api/users/`)
+Search: username, email, first/last names.
+Filter: `is_verified`, `is_active`.
+
+---
+## 5. Pagination
+
+Custom paginator: `StandardResultsSetPagination`.
+- Default page size: 20
+- Client override: `?page_size=<n>`
+- Max page size: 100
+
+Example:
+```
+/api/products/?page=3&page_size=50
+```
+
+Response structure:
+```
 {
-	"username": "alice",
-	"email": "alice@example.com",
-	"first_name": "Alice",
-	"last_name": "A",
-	"password": "securepass"
+  "count": 123,
+  "next": "...",
+  "previous": null,
+  "results": [ ... ]
 }
-
-The endpoint returns a simple message and triggers a Celery task to send a verification email.
+```
 
 ---
+## 6. Throttling
 
-## Development setup
+Configured in `REST_FRAMEWORK`:
+- Global: `AnonRateThrottle` (100/hour), `UserRateThrottle` (1000/hour)
+- Scoped rates:
+  - `users`: 500/hour
+  - `payments`: 300/hour
+  - `products`: 800/hour (set scope in view to activate)
 
-Prerequisites
+429 responses include `Retry-After` header when limits exceeded.
 
-- Python 3.11+ (the repo uses 3.13 in some compiled files, but 3.11/3.12+ should work). Install with your OS package manager or pyenv.
-- Redis (for Celery broker and results) — local Redis server or hosted instance.
-- A Postgres database is recommended for JSONField indexing (GinIndex). SQLite will work for local development but will ignore gin indexes.
+---
+## 7. Caching Strategy
 
-Install dependencies (from project root):
+- Product list: 60s (`@cache_page(60)`).
+- Payment list: 30s (`@cache_page(30)`).
+- Redis-backed (Django cache configured). Full URL (including query params) forms cache key.
+- Safe for high-read catalog endpoints; invalidation occurs naturally after TTL. Extend with explicit busting if you add admin edits at scale.
 
+---
+## 8. Background Tasks (Celery)
+
+Principal tasks (in `notifications/tasks.py`):
+- `send_verification_email(user_id)`
+- `send_order_confirmation(order_id)` (template placeholder)
+- `process_abandoned_carts()` + `send_abandoned_cart_email(cart_id)`
+- `update_low_stocks_alerts()`
+
+### Dev Eager Mode
+If `DEBUG=True` & `CELERY_EAGER=true` (default in settings), tasks run synchronously – no broker/worker required.
+
+### Running real workers
+```
+celery -A ecommerce worker -l info -P solo   # Windows uses solo pool
+celery -A ecommerce beat -l info             # If periodic tasks needed
+```
+
+---
+## 9. OpenAPI / Documentation
+
+Generated with **drf-spectacular**.
+Endpoints:
+- `/api/schema/` (raw schema JSON/YAML)
+- `/api/docs/swagger/` (Swagger UI)
+- `/api/docs/redoc/` (ReDoc)
+
+Extend schema via `SPECTACULAR_SETTINGS` or per-view `extend_schema` decorators for examples.
+
+---
+## 10. Configuration & Environment (.env)
+
+Sample `.env` (DO NOT commit real secrets):
+```
+DJANGO_SECRET_KEY=change-me
+DEBUG=true
+
+# Postgres
+DB_NAME=ecommerce
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_HOST=127.0.0.1
+DB_PORT=5432
+
+# Redis (local)
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+CELERY_EAGER=true
+
+# Email (Gmail example)
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=you@gmail.com
+EMAIL_HOST_PASSWORD=app-password-here
+EMAIL_USE_TLS=true
+DEFAULT_FROM_EMAIL=you@gmail.com
+SITE_URL=http://127.0.0.1:8000
+```
+
+> For production: disable eager mode, enforce HTTPS, rotate secrets, add SPF/DKIM.
+
+---
+## 11. Development & Operations
+
+Install & Run:
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python ecommerce/manage.py migrate
+python ecommerce/manage.py runserver
 ```
 
-Environment
-
-- Copy or create `.env` if your project loads env vars (not included). Otherwise edit `ecommerce/ecommerce/settings.py` to match your DB and Redis credentials.
-
-Database & migrations
-
+Optional (async mode):
 ```powershell
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" makemigrations
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" migrate
+celery -A ecommerce worker -l info -P solo
 ```
 
-Create a superuser (optional):
-
+Test email configuration:
 ```powershell
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" createsuperuser
-```
-
-Run the development server
-
-```powershell
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" runserver
-```
-
-Running Celery worker (in a new terminal) — example using Redis and the project settings:
-
-```powershell
-celery -A ecommerce worker --loglevel=info
-```
-
-To run scheduled beat tasks:
-
-```powershell
-celery -A ecommerce beat --loglevel=info
+python ecommerce/manage.py test_email you@example.com
 ```
 
 ---
+## 12. Testing
 
-## Running tests
-
-Run Django tests with:
-
+Run all tests:
 ```powershell
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" test
+python ecommerce/manage.py test
 ```
 
-If you see errors during test DB setup about missing migrations for an app (for example `Dependency on app with no migrations: users`), create migrations for the app first:
-
-```powershell
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" makemigrations users
-python "c:\Users\Allan N\OneDrive\Desktop\alx_be_python\alx-project-nexus-1\ecommerce\manage.py" migrate
-```
+Pagination tests confirm `page_size` caps at 100.
+Recommended to add: order creation, verification link tests, filter coverage, permission checks.
 
 ---
+## 13. Management Commands
 
-## Recommendations & next steps
+| Command | Purpose |
+|---------|---------|
+| `test_email <recipient>` | Send a test email using current SMTP config |
 
-1. Replace the minimal `users.User` model with a full Django custom user based on `AbstractBaseUser` and `PermissionsMixin`. This ensures proper password hashing, authentication backend compatibility, admin usability, and manager implementation.
-
-2. Implement `payments` models to capture gateway transactions and idempotency keys. Integrate with a payment provider (Stripe recommended for prototyping).
-
-3. Harden secrets and sensitive configuration: move Redis URLs, DB credentials, and `SECRET_KEY` into environment variables or a secrets manager.
-
-4. Add email templates in `templates/emails/` and configure `EMAIL_BACKEND` / SMTP credentials in `settings.py`.
-
-5. Add thorough tests per app: model tests, serializer tests, and view tests. Add CI (GitHub Actions) to run tests on push.
-
-6. Consider adding API documentation (OpenAPI/Swagger) using `drf_yasg` or `drf_spectacular` (both are already in `INSTALLED_APPS`). Export schema and enable an interactive UI.
-
-7. If using Postgres, keep the `GinIndex` on JSON fields to accelerate attribute queries.
+Add more (e.g., `rebuild_index`, `resend_failed_emails`) as system grows.
 
 ---
+## 14. Security & Hardening Notes
 
-If you want, I can:
+- Move all credentials to environment or secret manager (never commit real passwords).
+- Enforce HTTPS + secure cookies in production.
+- Add DRF permission refinements (e.g., staff-only endpoints) & object-level checks.
+- Consider rate limiting registration & verification resend endpoints separately.
+- Add monitoring/log aggregation (structured logs already started for email tasks).
 
-- Create initial migrations for `users` and `products` and run them (commit migration files),
-- Convert the `User` model to a complete custom user implementation,
-- Add example `.env` and local development instructions tailored to your machine,
-- Generate API docs from DRF serializers/views.
+---
+## 15. Roadmap / Next Improvements
 
-Tell me which you'd like me to do next and I will proceed.
+1. Shopping Cart model + workflows (ties into abandoned cart tasks more concretely).
+2. Payment gateway integration (Stripe Checkout / webhooks) & idempotent order capture.
+3. Inventory & stock reservation logic + low stock notifications to admin channel.
+4. Promotion / coupon subsystem (percentage, fixed, conditional rules).
+5. Full-text or vector search backend (PG trigram / Elasticsearch / OpenSearch).
+6. Image/media handling (S3 + thumbnails) and CDN integration.
+7. Improve email templates (HTML + plain text fallback + translation/i18n).
+8. CI pipeline (GitHub Actions) with linting (flake8/ruff), type hints (mypy), and test coverage gates.
+9. WebSocket / SSE channel for order status updates.
+10. Soft delete & audit log (GDPR friendly) for key models.
+
+---
+### Quick Reference (Cheat Sheet)
+
+| Action | Example |
+|--------|---------|
+| Register | `POST /api/register/` |
+| Resend verification | `POST /api/resend-verification/ {"email": "user@x.com"}` |
+| Verify | `GET /api/verify-email/<token>/` |
+| Obtain token | `POST /api/auth/token/` |
+| Products filter | `/api/products/?min_price=10&category=shirts` |
+| Pagination | `/api/products/?page=2&page_size=50` |
+| Ordering | `/api/products/?ordering=-price` |
+| Search | `/api/products/?search=wireless` |
+| Schema | `/api/schema/` |
+| Swagger UI | `/api/docs/swagger/` |
+| ReDoc | `/api/docs/redoc/` |
+
+---
+Contributions, experimentation, and extension are encouraged. This project is intentionally structured to be a solid starting point you can evolve into a production-grade platform. Feel free to open issues or extend functionality as you learn.
+
+---
+**Happy building!**
 

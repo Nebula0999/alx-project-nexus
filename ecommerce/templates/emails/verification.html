@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+    <h2>Verify your email</h2>
+    <p>Hi {{ user.first_name|default:user.username }},</p>
+    <p>Thanks for registering. Please verify your email address by clicking the button below:</p>
+    <p>
+      <a href="{{ verify_url }}" style="background:#2563eb;color:#fff;padding:10px 16px;text-decoration:none;border-radius:6px;display:inline-block">Verify Email</a>
+    </p>
+    <p>If the button doesn't work, copy and paste this link into your browser:</p>
+    <p><a href="{{ verify_url }}">{{ verify_url }}</a></p>
+    <p>This link expires in 24 hours.</p>
+    <p>— The Team</p>
+  </body>
+</html>

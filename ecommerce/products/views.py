@@ -22,7 +22,7 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         
         # Send verification email (implement with Celery)
-        from apps.notifications.tasks import send_verification_email
+        from notifications.tasks import send_verification_email
         send_verification_email.delay(user.id)
         
         return Response(
