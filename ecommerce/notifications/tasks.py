@@ -10,11 +10,36 @@ import logging
 logger = logging.getLogger('notifications.tasks')
 
 User = get_user_model()
+
 @shared_task(bind=True, max_retries=3)
 def send_verification_email(self, user_id):
-    """Send email verification to user."""
+    """Send email verification and record attempt metrics.
+
+    Tracking fields on the User model are updated:
+      - verification_email_last_attempt
+      - verification_email_attempts (incremented atomically)
+      - verification_email_last_success (set only on successful send)
+
+    In dev/eager mode we often want to avoid raising an exception all the way
+    to the API caller; set EMAIL_SILENT_FAIL=true (default in DEBUG) to swallow
+    final failures after retries.
+    """
+    from django.utils import timezone
+    from django.db import models
+    silent = getattr(settings, 'EMAIL_SILENT_FAIL', settings.DEBUG)
+
     try:
         user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return
+
+    # Record attempt timestamp & increment attempts
+    User.objects.filter(pk=user.pk).update(
+        verification_email_last_attempt=timezone.now(),
+        verification_email_attempts=models.F('verification_email_attempts') + 1
+    )
+
+    try:
         subject = 'Verify your email address'
         token = signing.dumps({"uid": user.id})
         verify_url = f"{getattr(settings, 'SITE_URL', 'http://127.0.0.1:8000')}/api/verify-email/{token}/"
@@ -22,7 +47,6 @@ def send_verification_email(self, user_id):
             'user': user,
             'verify_url': verify_url,
         })
-        
         sent = send_mail(
             subject=subject,
             message='',
@@ -30,11 +54,18 @@ def send_verification_email(self, user_id):
             recipient_list=[user.email],
             html_message=html_message,
         )
-        logger.debug(f"Verification email attempted send= {sent} to={user.email} url={verify_url}")
-        
+        logger.debug(f"Verification email attempted send={sent} to={user.email} url={verify_url}")
+        if sent:
+            User.objects.filter(pk=user.pk).update(
+                verification_email_last_success=timezone.now()
+            )
     except Exception as exc:
-        logger.exception("Error sending verification email - will retry")
-        self.retry(exc=exc, countdown=60)
+        logger.exception("Error sending verification email")
+        try:
+            self.retry(exc=exc, countdown=60)
+        except self.MaxRetriesExceededError:
+            if not silent:
+                raise
 @shared_task
 def send_order_confirmation(order_id):
     """Send order confirmation email."""

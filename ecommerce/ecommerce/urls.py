@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 
 from users.views_api import UserViewSet, verify_email_view
@@ -35,6 +36,7 @@ router.register(r'payments', PaymentViewSet, basename='payment')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('health/', lambda request: JsonResponse({'status': 'ok'})),  # Render health check
     path('api/', include(router.urls)),
     # auth
     path('api/auth/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),

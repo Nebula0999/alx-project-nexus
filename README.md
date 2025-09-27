@@ -75,7 +75,7 @@ Key supporting modules: `ecommerce.pagination`, DRF settings, Celery, Redis cach
 Endpoints:
 - `POST /api/register/` — create user (async or eager Celery email send).
 - `GET /api/verify-email/<token>/` — mark user verified (signed token, 24h expiry).
-- `POST /api/resend-verification/ {"email": "user@example.com"}` — resend if not verified.
+- `POST /api/resend-verification/ {"email": "shawng32176@gmail.com"}` — resend if not verified.
 - `POST /api/auth/token/` — obtains JWT **only if user is verified** (403 otherwise).
 - `POST /api/auth/token/refresh/` — refresh access token.
 

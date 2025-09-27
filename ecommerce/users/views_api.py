@@ -15,11 +15,14 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     throttle_scope = 'users'
-    filterset_fields = {
+    # Build filterset_fields dynamically so we do NOT reference non-existent model fields.
+    base_filter_fields = {
         'is_active': ['exact'],
         'is_verified': ['exact'],
-        'date_joined': ['date', 'date__lt', 'date__gt'] if hasattr(User, 'date_joined') else ['exact'],
     }
+    if hasattr(User, 'date_joined'):
+        base_filter_fields['date_joined'] = ['date', 'date__lt', 'date__gt']
+    filterset_fields = base_filter_fields
     search_fields = ['username', 'email', 'first_name', 'last_name']
     ordering_fields = ['username', 'email', 'id']
     ordering = ['username']

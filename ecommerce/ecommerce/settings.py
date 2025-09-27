@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import ssl
 from celery.schedules import crontab
 import environ
 env = environ.Env()
@@ -22,6 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 from dotenv import load_dotenv
 import os
+import certifi
 
 load_dotenv()
 
@@ -33,9 +35,9 @@ load_dotenv()
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', '1') in ('1', 'true', 'True')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 
 # Application definition
@@ -94,23 +96,21 @@ WSGI_APPLICATION = 'ecommerce.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-'''DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}'''
+import dj_database_url
 
 DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql_psycopg2',
-            'NAME': 'ecommerce',  
-            'USER': 'postgres',     
-            'PASSWORD': '15190', 
-            'HOST': 'localhost',        
-            'PORT': '5432',              
-        }
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('POSTGRES_DB', 'ecommerce'),
+        'USER': os.getenv('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
+        'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+        'PORT': os.getenv('POSTGRES_PORT', '5432'),
     }
+}
+
+if url := os.getenv('DATABASE_URL'):
+    DATABASES['default'] = dj_database_url.parse(url, conn_max_age=600)
 
 
 # Password validation
@@ -149,7 +149,12 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# WhiteNoise for serving static in container / production
+MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
@@ -188,21 +193,34 @@ CELERY_RESULT_SERIALIZER = 'json'
 # Recommended for periodic task consistency
 
 CELERY_TIMEZONE = TIME_ZONE
+"""Celery periodic tasks (settings-based scheduler).
+
+We previously referenced non-existent modules (apps.orders / apps.inventory). Those
+entries caused import errors when using the simple beat scheduler. This cleaned
+schedule only references tasks that actually exist in `notifications.tasks`.
+
+NOTE:
+If you enable the django-celery-beat DatabaseScheduler (USE_DB_BEAT=true), these
+settings are ignored and you must configure periodic tasks via the admin UI or
+custom migration. See `ecommerce/celery.py` for the switch logic.
+"""
 CELERY_BEAT_SCHEDULE = {
     'process-abandoned-carts': {
-        'task': 'apps.orders.tasks.process_abandoned_carts',
-        'schedule': 3600.0,  # Every hour
+        'task': 'notifications.tasks.process_abandoned_carts',
+        'schedule': 3600.0,  # Every hour; harmless if Cart model not implemented
     },
-    'update-inventory': {
-        'task': 'apps.inventory.tasks.update_low_stock_alerts',
+    'low-stock-alerts': {
+        'task': 'notifications.tasks.update_low_stocks_alerts',  # function name has plural 'stocks'
         'schedule': 1800.0,  # Every 30 minutes
     },
 }
 
 # In development, you can execute Celery tasks locally without a broker
 if DEBUG and os.getenv('CELERY_EAGER', 'true').lower() == 'true':
+    # Run Celery tasks synchronously in dev so you don't need a worker.
     CELERY_TASK_ALWAYS_EAGER = True
-    CELERY_TASK_EAGER_PROPAGATES = True
+    # Do NOT propagate exceptions so a transient SMTP failure does not break user registration.
+    CELERY_TASK_EAGER_PROPAGATES = False
 
 # Django REST Framework defaults
 REST_FRAMEWORK = {
@@ -237,18 +255,31 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-# Email configuration (prefer env; fallback to Gmail dev example). For local debug you can set EMAIL_BACKEND to console.
+# Email configuration (with safe defaults). For local debug you can set EMAIL_BACKEND to console.
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
 # Accept either EMAIL_HOST_USER or legacy EMAIL_ADDRESS
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') or os.getenv('EMAIL_ADDRESS', 'youremail@example.com')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER') or os.getenv('EMAIL_ADDRESS', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
-EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'false').lower() == 'true'
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
 EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '30'))
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'noreply@example.com')
 ACCOUNT_EMAIL_SUBJECT_PREFIX = os.getenv('ACCOUNT_EMAIL_SUBJECT_PREFIX', '')
+EMAIL_SSL_CERTFILE = certifi.where()
+
+# Optional insecure certificate skipping backend (DEV ONLY). Enable by setting EMAIL_INSECURE_SKIP_VERIFY=true
+if EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend':
+    try:
+        from .email_backends import InsecureSMTPEmailBackend  # type: ignore
+        if os.getenv('EMAIL_INSECURE_SKIP_VERIFY', 'false').lower() == 'true':  # pragma: no cover (env dependent)
+            EMAIL_BACKEND = 'ecommerce.email_backends.InsecureSMTPEmailBackend'
+    except Exception:  # pragma: no cover - fail closed
+        pass
+
+# Control whether verification email task suppresses final exceptions.
+EMAIL_SILENT_FAIL = os.getenv('EMAIL_SILENT_FAIL', 'true' if DEBUG else 'false').lower() == 'true'
 
 # Basic logging to surface email sending issues & Celery task logs
 LOGGING = {
@@ -275,3 +306,28 @@ LOGGING = {
 
 # Base URL used to build absolute links in emails
 SITE_URL = os.getenv('SITE_URL', 'http://127.0.0.1:8000')
+
+# Render.com deployment adjustments
+if os.getenv('RENDER'):  # Render sets RENDER=1 and provides RENDER_EXTERNAL_URL
+    external_url = os.getenv('RENDER_EXTERNAL_URL')  # e.g. https://your-service.onrender.com
+    if external_url:
+        host = external_url.replace('https://', '').replace('http://', '').rstrip('/')
+        if host not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(host)
+        # Trust proxy headers for SSL
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # CSRF trusted origins
+    RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+    csrf_origins = []
+    if external_url:
+        csrf_origins.append(external_url)
+    if RENDER_EXTERNAL_HOSTNAME:
+        csrf_origins.append(f'https://{RENDER_EXTERNAL_HOSTNAME}')
+    if csrf_origins:
+        CSRF_TRUSTED_ORIGINS = csrf_origins
+    # If REDIS_URL provided by Render redis add-on unify usage
+    if redis_url := os.getenv('REDIS_URL'):
+        # Use the single redis instance for cache, broker & results (different DB indexes optional)
+        CACHES['default']['LOCATION'] = f"{redis_url}/{REDIS_DB_CACHE}"
+        CELERY_BROKER_URL = f"{redis_url}/{REDIS_DB_BROKER}"
+        CELERY_RESULT_BACKEND = f"{redis_url}/{REDIS_DB_RESULT}"

@@ -26,6 +26,8 @@ class UserManager(BaseUserManager):
     def create_superuser(self, username, email=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('is_active', True)
+        extra_fields.setdefault('is_verified', True)
 
         if extra_fields.get('is_staff') is not True:
             raise ValueError('Superuser must have is_staff=True.')
@@ -46,6 +48,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Tracking fields for verification email delivery attempts
+    verification_email_last_attempt = models.DateTimeField(blank=True, null=True)
+    verification_email_last_success = models.DateTimeField(blank=True, null=True)
+    verification_email_attempts = models.PositiveIntegerField(default=0)
 
     objects = UserManager()
 

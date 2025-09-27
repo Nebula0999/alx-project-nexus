@@ -1,3 +1,8 @@
-from django.test import TestCase
+import smtplib, ssl
+import certifi
 
-# Create your tests here.
+context = ssl.create_default_context(cafile=certifi.where())
+with smtplib.SMTP("smtp.gmail.com", 587) as server:
+    server.starttls(context=context)
+    server.login("shawng32176@gmail.com", "xyjilrutycmhpgzl")
+    print("Success!")

@@ -1,0 +1,101 @@
+version: ''
+
+services:
+  web:
+    build: .
+    container_name: nexus_web
+    command: ["/app/docker/entrypoint.sh", "runserver"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-key}
+      DEBUG: ${DEBUG:-1}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SITE_URL: http://localhost:8000
+      CELERY_EAGER: "false"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app:delegated
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: nexus_worker
+    command: ["/app/docker/entrypoint.sh", "celery-worker"]
+    env_file:
+      - .env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-key}
+      DEBUG: ${DEBUG:-1}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_EAGER: "false"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app:delegated
+    restart: unless-stopped
+
+  beat:
+    build: .
+    container_name: nexus_beat
+    command: ["/app/docker/entrypoint.sh", "celery-beat"]
+    env_file:
+      - .env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-key}
+      DEBUG: ${DEBUG:-1}
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_EAGER: "false"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app:delegated
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: nexus_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  redis_data:
