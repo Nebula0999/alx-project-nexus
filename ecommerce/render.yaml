@@ -14,10 +14,11 @@ services:
     runtime: python
     plan: free
     autoDeploy: true
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput --verbosity 0
-    startCommand: |
-      python manage.py migrate --noinput && \
-      gunicorn ecommerce.wsgi:application --bind 0.0.0.0:$PORT --workers ${GUNICORN_WORKERS:-3} --timeout ${GUNICORN_TIMEOUT:-60} --access-logfile - --error-logfile -
+    buildCommand: |
+      pip install -r requirements.txt 
+      python manage.py collectstatic --noinput --verbosity 0
+      python manage.py migrate
+    startCommand: "gunicorn ecommerce.wsgi:application" 
     healthCheckPath: /health/
     envVars:
       - key: DJANGO_SECRET_KEY
