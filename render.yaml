@@ -19,7 +19,7 @@ services:
     healthCheckPath: /health/
     envVars:
       - key: DJANGO_SECRET_KEY
-        generateValue: true
+        value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
       - key: CELERY_EAGER
@@ -75,7 +75,7 @@ services:
     dockerCommand: /app/docker/entrypoint.sh celery-worker
     envVars:
       - key: DJANGO_SECRET_KEY
-        generateValue: true
+        value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
       - key: CELERY_EAGER
@@ -127,7 +127,7 @@ services:
     dockerCommand: /app/docker/entrypoint.sh celery-beat
     envVars:
       - key: DJANGO_SECRET_KEY
-        generateValue: true
+        value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
       - key: CELERY_EAGER

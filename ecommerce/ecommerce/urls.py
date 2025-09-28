@@ -17,6 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
+from django.db import connections
+from django.core.cache import caches
+import time
 from rest_framework.routers import DefaultRouter
 
 from users.views_api import UserViewSet, verify_email_view
@@ -34,9 +37,45 @@ router.register(r'users', UserViewSet, basename='user')
 router.register(r'products', ProductViewSet, basename='product')
 router.register(r'payments', PaymentViewSet, basename='payment')
 
+def health_view(request):
+    started = time.time()
+    db_ok = True
+    cache_ok = True
+    db_error = None
+    cache_error = None
+    # DB check (default connection)
+    try:
+        with connections['default'].cursor() as cur:
+            cur.execute('SELECT 1;')
+            cur.fetchone()
+    except Exception as exc:  # pragma: no cover (depends on infra)
+        db_ok = False
+        db_error = str(exc)[:200]
+    # Cache check
+    try:
+        cache = caches['default']
+        cache.set('__healthcheck__', '1', 5)
+        val = cache.get('__healthcheck__')
+        if val != '1':
+            raise RuntimeError('cache_miss')
+    except Exception as exc:  # pragma: no cover
+        cache_ok = False
+        cache_error = str(exc)[:200]
+    elapsed_ms = int((time.time() - started) * 1000)
+    overall = db_ok and cache_ok
+    status_code = 200 if overall else 503
+    return JsonResponse({
+        'status': 'ok' if overall else 'degraded',
+        'db': db_ok,
+        'cache': cache_ok,
+        'elapsed_ms': elapsed_ms,
+        'db_error': db_error,
+        'cache_error': cache_error,
+    }, status=status_code)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('health/', lambda request: JsonResponse({'status': 'ok'})),  # Render health check
+    path('health/', health_view),  # Enhanced health check
     path('api/', include(router.urls)),
     # auth
     path('api/auth/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),

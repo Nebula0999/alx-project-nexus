@@ -15,6 +15,7 @@ from datetime import timedelta
 import ssl
 from celery.schedules import crontab
 import environ
+import dj_database_url
 env = environ.Env()
 environ.Env.read_env()
 
@@ -37,7 +38,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', '1') in ('1', 'true', 'True')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
 
 
 # Application definition
@@ -173,10 +174,11 @@ REDIS_URL_BASE = os.getenv('REDIS_URL_BASE', f'redis://{REDIS_HOST}:{REDIS_PORT}
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": f"{REDIS_URL_BASE}/{REDIS_DB_CACHE}",
+        "LOCATION": f"rediss://default:{os.getenv('VALKEY_PASSWORD')}@{os.getenv('VALKEY_HOST')}:{os.getenv('VALKEY_PORT')}/0",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "DECODE_RESPONSES": True,
+            "PASSWORD": os.getenv('VALKEY_PASSWORD'),
+            "SSL": True,  # important for Aiven Valkey
         }
     }
 }
