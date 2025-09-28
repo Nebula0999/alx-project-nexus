@@ -22,16 +22,30 @@ services:
         value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
+      - key: RUN_MIGRATIONS
+        value: "1"  # Only the web service should run migrations
+      - key: USE_GUNICORN
+        value: "1"
+      - key: GUNICORN_WORKERS
+        value: "3"
+      - key: GUNICORN_TIMEOUT
+        value: "60"
       - key: CELERY_EAGER
         value: "false"
       - key: EMAIL_SILENT_FAIL
         value: "false"
       - key: EMAIL_BACKEND
         value: django.core.mail.backends.console.EmailBackend
+      - key: DB_CONN_MAX_AGE
+        value: "600"
       - key: ALLOWED_HOSTS
         value: "nexus-web.onrender.com,localhost,127.0.0.1"
       - key: SITE_URL
         value: https://nexus-web.onrender.com
+      - key: SECURE_HSTS_SECONDS
+        value: "63072000"
+      - key: USE_DB_BEAT
+        value: "0"  # Set to 1 to switch to django-celery-beat database scheduler
       - key: POSTGRES_DB
         fromDatabase:
           name: nexus-postgres
@@ -65,6 +79,36 @@ services:
         value: nexus-redis
       - key: REDIS_PORT
         value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
+      # Valkey placeholders (used only if you point to external Valkey instead of Render Redis)
+      - key: VALKEY_HOST
+        value: ""
+      - key: VALKEY_PORT
+        value: ""
+      - key: VALKEY_PASSWORD
+        value: ""
+      # Email configuration (override these in a private environment or dashboard)
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
+        value: ""
+      - key: EMAIL_HOST_PASSWORD
+        value: ""
+      - key: EMAIL_TIMEOUT
+        value: "30"
+      - key: DEFAULT_FROM_EMAIL
+        value: ""
+      - key: ACCOUNT_EMAIL_SUBJECT_PREFIX
+        value: ""
+      - key: EMAIL_INSECURE_SKIP_VERIFY
+        value: "false"
 
   - type: worker
     name: nexus-worker
@@ -78,12 +122,24 @@ services:
         value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
+      - key: RUN_MIGRATIONS
+        value: "0"  # Avoid multiple services running migrations
+      - key: USE_GUNICORN
+        value: "1"
+      - key: GUNICORN_WORKERS
+        value: "3"
+      - key: GUNICORN_TIMEOUT
+        value: "60"
       - key: CELERY_EAGER
         value: "false"
       - key: EMAIL_SILENT_FAIL
         value: "false"
       - key: EMAIL_BACKEND
         value: django.core.mail.backends.console.EmailBackend
+      - key: DB_CONN_MAX_AGE
+        value: "600"
+      - key: USE_DB_BEAT
+        value: "0"
       - key: POSTGRES_DB
         fromDatabase:
           name: nexus-postgres
@@ -117,6 +173,18 @@ services:
         value: nexus-redis
       - key: REDIS_PORT
         value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
+      - key: VALKEY_HOST
+        value: ""
+      - key: VALKEY_PORT
+        value: ""
+      - key: VALKEY_PASSWORD
+        value: ""
 
   - type: worker
     name: nexus-beat
@@ -130,12 +198,24 @@ services:
         value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
+      - key: RUN_MIGRATIONS
+        value: "0"
+      - key: USE_GUNICORN
+        value: "1"
+      - key: GUNICORN_WORKERS
+        value: "3"
+      - key: GUNICORN_TIMEOUT
+        value: "60"
       - key: CELERY_EAGER
         value: "false"
       - key: EMAIL_SILENT_FAIL
         value: "false"
       - key: EMAIL_BACKEND
         value: django.core.mail.backends.console.EmailBackend
+      - key: DB_CONN_MAX_AGE
+        value: "600"
+      - key: USE_DB_BEAT
+        value: "0"
       - key: POSTGRES_DB
         fromDatabase:
           name: nexus-postgres
@@ -169,6 +249,18 @@ services:
         value: nexus-redis
       - key: REDIS_PORT
         value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
+      - key: VALKEY_HOST
+        value: ""
+      - key: VALKEY_PORT
+        value: ""
+      - key: VALKEY_PASSWORD
+        value: ""
 
   - type: redis
     name: nexus-redis
