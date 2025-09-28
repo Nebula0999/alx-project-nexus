@@ -27,6 +27,5 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.gateway} {self.amount} {self.currency} ({self.status})"
-from django.db import models
 
 # Create your models here.
