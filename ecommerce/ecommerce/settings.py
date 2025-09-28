@@ -106,6 +106,7 @@ DATABASES = {
         'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
         'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
         'PORT': os.getenv('POSTGRES_PORT', '5432'),
+        'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
     }
 }
 
@@ -331,3 +332,22 @@ if os.getenv('RENDER'):  # Render sets RENDER=1 and provides RENDER_EXTERNAL_URL
         CACHES['default']['LOCATION'] = f"{redis_url}/{REDIS_DB_CACHE}"
         CELERY_BROKER_URL = f"{redis_url}/{REDIS_DB_BROKER}"
         CELERY_RESULT_BACKEND = f"{redis_url}/{REDIS_DB_RESULT}"
+
+# Production security hardening (only applied when DEBUG is False)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '63072000'))  # 2 years
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    # Browser XSS filter header (retained for older browsers; modern CSP would be next step)
+    SECURE_BROWSER_XSS_FILTER = True  # type: ignore[attr-defined]
+    X_FRAME_OPTIONS = 'DENY'
+    # If behind reverse proxy (Render) this is already set above when RENDER present.
+
+# Optional: allow toggling gunicorn worker count / timeout via env for docs
+GUNICORN_WORKERS = int(os.getenv('GUNICORN_WORKERS', '3'))
+GUNICORN_TIMEOUT = int(os.getenv('GUNICORN_TIMEOUT', '60'))
