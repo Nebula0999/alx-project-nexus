@@ -11,11 +11,13 @@ databases:
 services:
   - type: web
     name: nexus-web
-    runtime: docker
+    runtime: python
     plan: free
     autoDeploy: true
-    dockerfilePath: Dockerfile
-    dockerCommand: /app/docker/entrypoint.sh runserver
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput --verbosity 0
+    startCommand: |
+      python manage.py migrate --noinput && \
+      gunicorn ecommerce.wsgi:application --bind 0.0.0.0:$PORT --workers ${GUNICORN_WORKERS:-3} --timeout ${GUNICORN_TIMEOUT:-60} --access-logfile - --error-logfile -
     healthCheckPath: /health/
     envVars:
       - key: DJANGO_SECRET_KEY
@@ -112,11 +114,11 @@ services:
 
   - type: worker
     name: nexus-worker
-    runtime: docker
+    runtime: python
     plan: free
     autoDeploy: true
-    dockerfilePath: Dockerfile
-    dockerCommand: /app/docker/entrypoint.sh celery-worker
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A ecommerce worker -l info
     envVars:
       - key: DJANGO_SECRET_KEY
         value: REPLACE_WITH_SECURE_SECRET
@@ -188,11 +190,11 @@ services:
 
   - type: worker
     name: nexus-beat
-    runtime: docker
+    runtime: python
     plan: free
     autoDeploy: true
-    dockerfilePath: Dockerfile
-    dockerCommand: /app/docker/entrypoint.sh celery-beat
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A ecommerce beat -l info
     envVars:
       - key: DJANGO_SECRET_KEY
         value: REPLACE_WITH_SECURE_SECRET
