@@ -38,7 +38,14 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', '1') in ('1', 'true', 'True')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS').split(',')
+# ALLOWED_HOSTS: provide a safe fallback so missing env var doesn't crash settings import.
+_raw_hosts = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1')
+ALLOWED_HOSTS = [h.strip() for h in _raw_hosts.split(',') if h.strip()]
+
+# PythonAnywhere convenience: if PYTHONANYWHERE_DOMAIN (e.g. yourusername.pythonanywhere.com) is set, ensure it's allowed.
+if pyany_domain := os.getenv('PYTHONANYWHERE_DOMAIN'):
+    if pyany_domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(pyany_domain)
 
 
 # Application definition
@@ -220,10 +227,15 @@ CELERY_BEAT_SCHEDULE = {
 
 # In development, you can execute Celery tasks locally without a broker
 if DEBUG and os.getenv('CELERY_EAGER', 'true').lower() == 'true':
-    # Run Celery tasks synchronously in dev so you don't need a worker.
     CELERY_TASK_ALWAYS_EAGER = True
-    # Do NOT propagate exceptions so a transient SMTP failure does not break user registration.
     CELERY_TASK_EAGER_PROPAGATES = False
+
+# If deploying on a platform without a readily available Redis/Valkey (e.g. PythonAnywhere free tier) and
+# no broker URL is configured, fall back to eager mode to avoid runtime connection errors.
+if not DEBUG and not os.getenv('CELERY_BROKER_URL') and 'CELERY_TASK_ALWAYS_EAGER' not in globals():
+    # Conservative fallback: process tasks inline so user flows (like email verification) still work.
+    CELERY_TASK_ALWAYS_EAGER = True  # type: ignore
+    CELERY_TASK_EAGER_PROPAGATES = False  # type: ignore
 
 # Django REST Framework defaults
 REST_FRAMEWORK = {
