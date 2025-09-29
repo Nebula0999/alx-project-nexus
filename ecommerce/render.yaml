@@ -15,9 +15,10 @@ services:
     plan: free
     autoDeploy: true
     buildCommand: |
-      pip install -r requirements.txt 
-      python manage.py collectstatic --noinput --verbosity 0
-      python manage.py migrate
+      pip install -r requirements.txt
+      # IMPORTANT: manage.py lives in the ecommerce/ subdirectory
+      python ecommerce/manage.py collectstatic --noinput --verbosity 0
+      python ecommerce/manage.py migrate --noinput
     startCommand: "gunicorn ecommerce.wsgi:application" 
     healthCheckPath: /health/
     envVars:
