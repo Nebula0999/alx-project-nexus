@@ -15,7 +15,26 @@ Environment behaviors:
 """
 
 import os
+
+# IMPORTANT GUARD:
+# The recurring error "ImportError: cannot import name 'Celery' from partially initialized module 'celery'"
+# happens when Python resolves *this* file as the top-level module name `celery` instead of the
+# third‑party package. That occurs if the inner project directory (ecommerce/ecommerce) is placed
+# on sys.path *ahead* of site‑packages (e.g. by setting PYTHONPATH to it or running python from
+# inside that folder and then performing operations that re-exec the file as a script).
+#
+# To make the root cause obvious we detect the situation early and raise a clearer error.
+if __name__ == "celery":  # pragma: no cover (environmental misconfiguration path)
+  raise RuntimeError(
+    "Project module 'ecommerce/celery.py' was imported as top-level 'celery'.\n"
+    "This shadows the real Celery package and causes the circular import error.\n"
+    "Fix by: (1) ensuring you run 'python manage.py <command>' from the project root (directory containing manage.py),\n"
+    "(2) not setting PYTHONPATH to the inner 'ecommerce/ecommerce' directory, and (3) using 'celery -A ecommerce worker'\n"
+    "instead of invoking the file directly."
+  )
+
 from celery import Celery
+from django.conf import settings as _dj_settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ecommerce.settings")
 
@@ -24,7 +43,7 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
 # Defensive broker/backend assignment (won't break if unset in eager mode)
-from django.conf import settings as _dj_settings  # local alias to avoid polluting namespace
+  # local alias to avoid polluting namespace
 
 broker = getattr(_dj_settings, 'CELERY_BROKER_URL', None)
 backend = getattr(_dj_settings, 'CELERY_RESULT_BACKEND', None)
