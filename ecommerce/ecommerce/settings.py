@@ -61,7 +61,8 @@ INSTALLED_APPS = [
     'products',
     'payments',
     'rest_framework',
-    'celery',
+    # NOTE: Do not list 'celery' here; Celery is a library, not a Django app. Including it can
+    # create circular import scenarios where Python thinks your project celery.py is the library.
     'django_celery_beat',
     'django_celery_results',
     'corsheaders',
