@@ -15,6 +15,8 @@ Environment behaviors:
 """
 
 import os
+from celery import Celery
+from django.conf import settings as _dj_settings
 
 # IMPORTANT GUARD:
 # The recurring error "ImportError: cannot import name 'Celery' from partially initialized module 'celery'"
@@ -33,8 +35,7 @@ if __name__ == "celery":  # pragma: no cover (environmental misconfiguration pat
     "instead of invoking the file directly."
   )
 
-from celery import Celery
-from django.conf import settings as _dj_settings
+
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ecommerce.settings")
 
