@@ -104,7 +104,7 @@ WSGI_APPLICATION = 'ecommerce.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-import dj_database_url
+DB_CONN_MAX_AGE = int(os.getenv('DB_CONN_MAX_AGE', '60'))
 
 DATABASES = {
     'default': {
@@ -114,12 +114,32 @@ DATABASES = {
         'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
         'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
         'PORT': os.getenv('POSTGRES_PORT', '5432'),
-        'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+        'CONN_MAX_AGE': DB_CONN_MAX_AGE,
     }
 }
 
+"""DATABASE_URL precedence
+If DATABASE_URL is provided it overrides the discrete POSTGRES_* vars.
+Supported examples:
+  postgres://user:pass@host:5432/dbname
+  postgresql://user:pass@host:5432/dbname?sslmode=require
+
+Optional env flags:
+  DB_SSL_REQUIRE=1 (forces sslmode=require if not already in URL)
+  DB_CONN_MAX_AGE (pool persistence seconds; default 60)
+
+If both a query param sslmode and DB_SSL_REQUIRE are present, the URL's query wins.
+"""
 if url := os.getenv('DATABASE_URL'):
-    DATABASES['default'] = dj_database_url.parse(url, conn_max_age=600)
+    ssl_require_flag = os.getenv('DB_SSL_REQUIRE', '0').lower() in ('1', 'true', 'yes')
+    parsed = dj_database_url.parse(url, conn_max_age=DB_CONN_MAX_AGE, ssl_require=ssl_require_flag)
+    # Allow explicit disabling of ssl for local tunnels even if DB_SSL_REQUIRE was set
+    if os.getenv('DB_SSL_DISABLE', '0').lower() in ('1', 'true', 'yes'):
+        opts = parsed.get('OPTIONS', {})
+        if 'sslmode' in opts:
+            opts.pop('sslmode')
+        parsed['OPTIONS'] = opts
+    DATABASES['default'] = parsed
 
 
 # Password validation
