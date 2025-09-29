@@ -6,7 +6,7 @@ databases:
   - name: nexus-postgres
     databaseName: ecommerce
     user: ecommerce
-    plan: free
+    plan: free # upgrade as needed
 
 services:
   - type: web
@@ -15,25 +15,40 @@ services:
     plan: free
     autoDeploy: true
     buildCommand: |
-      pip install -r requirements.txt
+      pip install -r requirements.txt 
       python manage.py collectstatic --noinput --verbosity 0
-      python manage.py migrate --noinput
-    startCommand: gunicorn ecommerce.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --timeout 60 --access-logfile - --error-logfile -
+      python manage.py migrate
+    startCommand: "gunicorn ecommerce.wsgi:application" 
     healthCheckPath: /health/
     envVars:
       - key: DJANGO_SECRET_KEY
         value: REPLACE_WITH_SECURE_SECRET
       - key: DEBUG
         value: "0"
+      - key: RUN_MIGRATIONS
+        value: "1"  # Only the web service should run migrations
+      - key: USE_GUNICORN
+        value: "1"
+      - key: GUNICORN_WORKERS
+        value: "3"
+      - key: GUNICORN_TIMEOUT
+        value: "60"
+      - key: CELERY_EAGER
+        value: "false"
+      - key: EMAIL_SILENT_FAIL
+        value: "false"
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.console.EmailBackend
+      - key: DB_CONN_MAX_AGE
+        value: "600"
       - key: ALLOWED_HOSTS
         value: "nexus-web.onrender.com,localhost,127.0.0.1"
       - key: SITE_URL
         value: https://nexus-web.onrender.com
-      - key: DATABASE_URL
-        fromDatabase:
-          name: nexus-postgres
-          property: connectionString
-      # Postgres discrete variables (optional if DATABASE_URL present)
+      - key: SECURE_HSTS_SECONDS
+        value: "63072000"
+      - key: USE_DB_BEAT
+        value: "0"  # Set to 1 to switch to django-celery-beat database scheduler
       - key: POSTGRES_DB
         fromDatabase:
           name: nexus-postgres
@@ -54,40 +69,119 @@ services:
         fromDatabase:
           name: nexus-postgres
           property: port
-
-      # Email configuration (placeholders – set real creds in dashboard)
-      - key: EMAIL_BACKEND
-        value: django.core.mail.backends.smtp.EmailBackend
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nexus-redis
+          property: connectionString
+      - key: REDIS_HOST
+        value: nexus-redis
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
+      # Valkey placeholders (used only if you point to external Valkey instead of Render Redis)
+      - key: VALKEY_HOST
+        value: ""
+      - key: VALKEY_PORT
+        value: ""
+      - key: VALKEY_PASSWORD
+        value: ""
+      # Email configuration (override these in a private environment or dashboard)
       - key: EMAIL_HOST
         value: smtp.gmail.com
       - key: EMAIL_PORT
         value: "587"
-      - key: EMAIL_USE_TLS
-        value: "true"
-      - key: EMAIL_USE_SSL
-        value: "false"
       - key: EMAIL_HOST_USER
         value: ""
       - key: EMAIL_HOST_PASSWORD
         value: ""
-      - key: DEFAULT_FROM_EMAIL
-        value: ""
       - key: EMAIL_TIMEOUT
         value: "30"
+      - key: DEFAULT_FROM_EMAIL
+        value: ""
+      - key: ACCOUNT_EMAIL_SUBJECT_PREFIX
+        value: ""
+      - key: EMAIL_INSECURE_SKIP_VERIFY
+        value: "false"
 
-      # Celery / async task execution
+  - type: worker
+    name: nexus-worker
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A ecommerce worker -l info
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        value: REPLACE_WITH_SECURE_SECRET
+      - key: DEBUG
+        value: "0"
+      - key: RUN_MIGRATIONS
+        value: "0"  # Avoid multiple services running migrations
+      - key: USE_GUNICORN
+        value: "1"
+      - key: GUNICORN_WORKERS
+        value: "3"
+      - key: GUNICORN_TIMEOUT
+        value: "60"
       - key: CELERY_EAGER
-        value: "true"  # true = inline tasks; set false AND add a worker service to enable real async
-      - key: CELERY_BROKER_URL
-        value: ""  # e.g. rediss://user:pass@host:port/1 (leave blank if using eager mode only)
-      - key: CELERY_RESULT_BACKEND
-        value: ""  # e.g. rediss://user:pass@host:port/2
+        value: "false"
+      - key: EMAIL_SILENT_FAIL
+        value: "false"
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.console.EmailBackend
+      - key: DB_CONN_MAX_AGE
+        value: "600"
       - key: USE_DB_BEAT
-        value: "0"  # set 1 if you later add django-celery-beat + separate beat service
-
-      # Valkey / Redis external (if you prefer managed Valkey over Render Redis add-on)
-      - key: VALKEY_URL
-        value: ""  # rediss://default:password@host:port
+        value: "0"
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: nexus-postgres
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: nexus-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: nexus-postgres
+          property: password
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: nexus-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: nexus-postgres
+          property: port
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nexus-redis
+          property: connectionString
+      - key: REDIS_HOST
+        value: nexus-redis
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
       - key: VALKEY_HOST
         value: ""
       - key: VALKEY_PORT
@@ -95,18 +189,92 @@ services:
       - key: VALKEY_PASSWORD
         value: ""
 
-      # Gunicorn tuning & security
+  - type: worker
+    name: nexus-beat
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A ecommerce beat -l info
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        value: REPLACE_WITH_SECURE_SECRET
+      - key: DEBUG
+        value: "0"
+      - key: RUN_MIGRATIONS
+        value: "0"
+      - key: USE_GUNICORN
+        value: "1"
       - key: GUNICORN_WORKERS
         value: "3"
       - key: GUNICORN_TIMEOUT
         value: "60"
-      - key: SECURE_HSTS_SECONDS
-        value: "31536000"
+      - key: CELERY_EAGER
+        value: "false"
+      - key: EMAIL_SILENT_FAIL
+        value: "false"
+      - key: EMAIL_BACKEND
+        value: django.core.mail.backends.console.EmailBackend
       - key: DB_CONN_MAX_AGE
         value: "600"
+      - key: USE_DB_BEAT
+        value: "0"
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: nexus-postgres
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: nexus-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: nexus-postgres
+          property: password
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: nexus-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: nexus-postgres
+          property: port
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nexus-redis
+          property: connectionString
+      - key: REDIS_HOST
+        value: nexus-redis
+      - key: REDIS_PORT
+        value: "6379"
+      - key: REDIS_DB_CACHE
+        value: "0"
+      - key: REDIS_DB_BROKER
+        value: "1"
+      - key: REDIS_DB_RESULT
+        value: "2"
+      - key: VALKEY_HOST
+        value: ""
+      - key: VALKEY_PORT
+        value: ""
+      - key: VALKEY_PASSWORD
+        value: ""
 
-# Basic minimal blueprint: single web service + Postgres. Inline Celery tasks.
-# To scale later:
-#  - Add a Redis service and separate worker: change CELERY_EAGER to false.
-#  - Add periodic tasks: create a beat worker service.
-#  - Add email credentials: set EMAIL_BACKEND & related vars.
+  - type: redis
+    name: nexus-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Allow all (adjust for tighter security in production)
+
+# Notes:
+# 1. Replace console email backend with a real provider for production (SendGrid, Mailgun, etc.).
+# 2. For Gunicorn: update Dockerfile or dockerCommand to invoke gunicorn instead of Django's dev server.
+# 3. Ensure Celery beat schedule references valid task paths (currently some placeholders may need updating).
+# 4. Remove nexus-beat service if you do not use scheduled tasks yet.
