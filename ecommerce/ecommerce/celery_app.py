@@ -5,7 +5,7 @@ not shadowed by this file.
 """
 
 import os
-from celery import Celery
+from ecommerce.ecommerce.celery_app import Celery
 from django.conf import settings as django_settings
 
 # Make sure Django settings are loaded

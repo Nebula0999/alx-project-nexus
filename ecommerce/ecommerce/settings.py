@@ -120,29 +120,21 @@ DATABASES = {
     }
 }
 
-"""DATABASE URL precedence
-Order of resolution (first hit wins):
-1. INTERNAL_DATABASE_URL  -> intended for intra-Render (private network / service name host, often no TLS needed)
-2. DATABASE_URL            -> external hostname connection string (publicly reachable, usually with TLS)
-3. Discrete POSTGRES_* vars
-
+"""DATABASE_URL precedence
+If DATABASE_URL is provided it overrides the discrete POSTGRES_* vars.
 Supported examples:
-    postgresql://user:pass@nexus-postgres:5432/dbname          (internal)
-    postgresql://user:pass@nexus-postgres.onrender.com/dbname  (external)
+  postgres://user:pass@host:5432/dbname
+  postgresql://user:pass@host:5432/dbname?sslmode=require
 
 Optional env flags:
-    DB_SSL_REQUIRE=1  (adds sslmode=require if not already present)
-    DB_SSL_DISABLE=1  (removes sslmode set by driver/flag; useful for trusted internal network)
-    DB_CONN_MAX_AGE    (pool persistence seconds; default 60)
+  DB_SSL_REQUIRE=1 (forces sslmode=require if not already in URL)
+  DB_CONN_MAX_AGE (pool persistence seconds; default 60)
 
-Notes:
- - Prefer INTERNAL_DATABASE_URL in production if app + DB are in same Render region for lower latency & reduced egress exposure.
- - Keep external DATABASE_URL for local development access (do NOT expose INTERNAL_ value locally—it will not resolve).
+If both a query param sslmode and DB_SSL_REQUIRE are present, the URL's query wins.
 """
-resolved_db_url = os.getenv('INTERNAL_DATABASE_URL') or os.getenv('DATABASE_URL')
-if resolved_db_url:
+if url := os.getenv('INTERNAL_DATABASE_URL'):
     ssl_require_flag = os.getenv('DB_SSL_REQUIRE', '0').lower() in ('1', 'true', 'yes')
-        parsed = dj_database_url.parse(resolved_db_url, conn_max_age=DB_CONN_MAX_AGE, ssl_require=ssl_require_flag)
+    parsed = dj_database_url.parse(url, conn_max_age=DB_CONN_MAX_AGE, ssl_require=ssl_require_flag)
     # Allow explicit disabling of ssl for local tunnels even if DB_SSL_REQUIRE was set
     if os.getenv('DB_SSL_DISABLE', '0').lower() in ('1', 'true', 'yes'):
         opts = parsed.get('OPTIONS', {})
