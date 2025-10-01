@@ -132,7 +132,7 @@ Optional env flags:
 
 If both a query param sslmode and DB_SSL_REQUIRE are present, the URL's query wins.
 """
-if url := os.getenv('INTERNAL_DATABASE_URL'):
+if url := os.getenv('DATABASE_URL'):
     ssl_require_flag = os.getenv('DB_SSL_REQUIRE', '0').lower() in ('1', 'true', 'yes')
     parsed = dj_database_url.parse(url, conn_max_age=DB_CONN_MAX_AGE, ssl_require=ssl_require_flag)
     # Allow explicit disabling of ssl for local tunnels even if DB_SSL_REQUIRE was set
